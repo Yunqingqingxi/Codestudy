@@ -48,6 +48,10 @@ textarea.inputarea {
   max-width: unset !important;
 }
 
+code {
+  white-space: pre;
+}
+
 .action-row-container,
 .description-container {
   background-color: var(--secondary-background);
