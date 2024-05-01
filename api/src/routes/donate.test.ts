@@ -14,6 +14,21 @@ const chargeStripeCardReqBody = {
   duration: 'month'
 };
 const mockSubCreate = jest.fn();
+const mockAttachPaymentMethod = jest.fn(() =>
+  Promise.resolve({
+    id: 'pm_1MqLiJLkdIwHu7ixUEgbFdYF',
+    object: 'payment_method'
+  })
+);
+const mockCustomerCreate = jest.fn(() =>
+  Promise.resolve({
+    id: 'cust_111',
+    name: 'Jest_User',
+    currency: 'sgd',
+    description: 'Jest User Account created'
+  })
+);
+const mockCustomerUpdate = jest.fn();
 const generateMockSubCreate = (status: string) => () =>
   Promise.resolve({
     id: 'cust_111',
@@ -31,14 +46,11 @@ jest.mock('stripe', () => {
   return jest.fn().mockImplementation(() => {
     return {
       customers: {
-        create: jest.fn(() =>
-          Promise.resolve({
-            id: 'cust_111',
-            name: 'Jest_User',
-            currency: 'sgd',
-            description: 'Jest User Account created'
-          })
-        )
+        create: mockCustomerCreate,
+        update: mockCustomerUpdate
+      },
+      paymentMethods: {
+        attach: mockAttachPaymentMethod
       },
       subscriptions: {
         create: mockSubCreate
@@ -78,6 +90,14 @@ const userWithProgress: Prisma.userCreateInput = {
       challengeType: 5
     }
   ]
+};
+
+const chargeStripeReqBody = {
+  email: 'lololemon@gmail.com',
+  name: 'Lolo Lemon',
+  token: { id: 'tok_123' },
+  amount: 500,
+  duration: 'month'
 };
 
 describe('Donate', () => {
@@ -214,6 +234,65 @@ describe('Donate', () => {
         expect(failResponse.status).toBe(400);
       });
     });
+
+    describe('POST /donate/charge-stripe', () => {
+      it('should return 200 and call stripe api properly', async () => {
+        mockSubCreate.mockImplementationOnce(
+          generateMockSubCreate('no-errors')
+        );
+        const response = await superPost('/donate/charge-stripe').send(
+          chargeStripeReqBody
+        );
+
+        expect(mockCustomerCreate).toHaveBeenCalledWith({
+          email: 'lololemon@gmail.com',
+          name: 'Lolo Lemon'
+        });
+
+        expect(mockAttachPaymentMethod).toHaveBeenCalledWith('tok_123', {
+          customer: 'cust_111'
+        });
+        expect(mockCustomerUpdate).toHaveBeenCalledWith('cust_111', {
+          invoice_settings: {
+            default_payment_method: 'pm_1MqLiJLkdIwHu7ixUEgbFdYF'
+          }
+        });
+
+        expect(response.status).toBe(200);
+      });
+
+      it('should return 500 when email format is wrong', async () => {
+        const response = await superPost('/donate/charge-stripe').send({
+          ...chargeStripeReqBody,
+          email: '12raqdcev'
+        });
+        expect(response.body).toEqual({
+          error: 'The donation form had invalid values for this submission.'
+        });
+        expect(response.status).toBe(500);
+      });
+      it('should return 500 if amount is incorrect', async () => {
+        const response = await superPost('/donate/charge-stripe').send({
+          ...chargeStripeReqBody,
+          amount: '350'
+        });
+        expect(response.body).toEqual({
+          error: 'The donation form had invalid values for this submission.'
+        });
+        expect(response.status).toBe(500);
+      });
+
+      it('should return 500 if Stripe encounters an error', async () => {
+        mockSubCreate.mockImplementationOnce(defaultError);
+        const response = await superPost('/donate/charge-stripe').send(
+          chargeStripeReqBody
+        );
+        expect(response.body).toEqual({
+          error: 'Donation failed due to a server error.'
+        });
+        expect(response.status).toBe(500);
+      });
+    });
   });
 
   describe('Unauthenticated User', () => {
@@ -235,6 +314,15 @@ describe('Donate', () => {
         });
         expect(response.statusCode).toBe(401);
       });
+    });
+
+    test('POST /donate/charge-stripe should return 200', async () => {
+      mockSubCreate.mockImplementationOnce(generateMockSubCreate('no-errors'));
+      const response = await superRequest('/donate/charge-stripe', {
+        method: 'POST',
+        setCookies
+      }).send(chargeStripeReqBody);
+      expect(response.status).toBe(200);
     });
   });
 });
