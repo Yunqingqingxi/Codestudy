@@ -81,4 +81,45 @@ test.describe('Learn (authenticated user)', () => {
     expect(allMotivationalQuotes).toContain(shownQuote);
     expect(allAuthors).toContain(shownAuthor);
   });
+
+  test('the page shows completed icons for a certified user', async function ({
+    page
+  }) {
+    await page.goto('/learn');
+    const curriculumBtns = page.getByTestId('curriculum-map-button');
+    await expect(curriculumBtns).toHaveCount(superBlocks.length);
+    for (let i = 0; i < superBlocks.length; i++) {
+      //Exclude English curriculum from tests and ones that lack circles; todo: eventually remove
+      console.log(i + ' \n' + superBlocks[i]);
+      if (
+        superBlocks.indexOf('A2 English for Developers (Beta)') != i &&
+        superBlocks.indexOf('Foundational C# with Microsoft') > i
+      ) {
+        const btn = curriculumBtns.nth(i);
+        const icon = btn.locator('.progress-icon > svg').first();
+        await expect(icon).toHaveClass('completeIcon');
+      }
+    }
+  });
+});
+
+test.describe('Learn (unauthenticated user)', () => {
+  test('the page shows completed icons for a certified user', async function ({
+    page
+  }) {
+    await page.goto('/learn');
+    const curriculumBtns = page.getByTestId('curriculum-map-button');
+    await expect(curriculumBtns).toHaveCount(superBlocks.length);
+    for (let i = 0; i < superBlocks.length; i++) {
+      //Exclude English curriculum from tests and ones that lack circles; todo: eventually remove
+      if (
+        superBlocks.indexOf('A2 English for Developers (Beta)') != i &&
+        superBlocks.indexOf('Foundational C# with Microsoft') > i
+      ) {
+        const btn = curriculumBtns.nth(i);
+        const icon = btn.locator('.progress-icon > svg').first();
+        await expect(icon).toHaveClass('incompleteIcon');
+      }
+    }
+  });
 });
