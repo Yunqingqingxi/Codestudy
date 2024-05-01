@@ -78,15 +78,6 @@ jobs:
             -t fcc-api \
             -f docker/api/Dockerfile .
 
-      - name: Save Image
-        run: docker save fcc-api > api-artifact.tar
-
-      - name: Upload Api Artifact
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
-        with:
-          name: api-artifact
-          path: api-artifact.tar
-
   build-new-api:
     name: Build New Api (Container)
     runs-on: ubuntu-22.04
@@ -104,21 +95,28 @@ jobs:
             -t fcc-new-api \
             -f docker/new-api/Dockerfile .
 
-  cypress-run:
-    name: Test
+      - name: Save Image
+        run: docker save fcc-new-api > api-artifact.tar
+
+      - name: Upload Api Artifact
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: api-artifact
+          path: api-artifact.tar
+
+  playwright-run:
     runs-on: ubuntu-22.04
-    needs: [build-client, build-api]
+    needs: [build-client, build-new-api]
     strategy:
       fail-fast: false
       matrix:
-        # To avoid wasting resources we're only using chrome for now.
-        browsers: [chrome]
+        # Extend this to include firefox and webkit once chromium is working.
+        browsers: [chromium]
         node-version: [20.x]
 
     steps:
       - name: Set Action Environment Variables
         run: |
-          echo "CYPRESS_RECORD_KEY=${{ secrets.CYPRESS_RECORD_KEY }}" >> $GITHUB_ENV
           echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
 
       - name: Checkout Source Files
@@ -148,14 +146,24 @@ jobs:
       - name: Set freeCodeCamp Environment Variables (needed by api)
         run: cp sample.env .env
 
-      - name: Cypress run
-        uses: cypress-io/github-action@v6
+      - name: Install playwright dependencies
+        run: npx playwright install --with-deps
+
+      - name: Start apps
+        run: |
+          docker compose up -d
+          sleep 10
+          docker compose logs
+
+      - name: Seed Database with Certified User
+        run: pnpm run seed:certified-user
+
+      - name: Run playwright tests
+        run: npx playwright test --project=${{ matrix.browsers }}
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          record: ${{ env.CYPRESS_RECORD_KEY != 0 }}
-          start: docker compose up -d
-          wait-on: http://localhost:8000, http://localhost:3000
-          wait-on-timeout: 1200
-          config: baseUrl=http://localhost:8000
-          browser: ${{ matrix.browsers }}
-          # Only run one test to keep the run time down.
-          spec: 'cypress/e2e/default/learn/challenges/backend.ts'
+          name: playwright-report-${{ matrix.browsers }}
+          path: playwright/reporter
+          retention-days: 30
