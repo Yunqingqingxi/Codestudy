@@ -24,7 +24,7 @@ export function Scene({
 
   const audioTimestamp =
     audio.startTimestamp !== null && audio.finishTimestamp !== null
-      ? `#t=${audio.startTimestamp},${audio.finishTimestamp}`
+      ? `#t=${audio.startTimestamp}`
       : '';
 
   const audioRef = useRef<HTMLAudioElement>(
@@ -35,10 +35,13 @@ export function Scene({
     if (src) new Image().src = src;
   };
 
+  const sToMs = (n: number) => {
+    return n * 1000;
+  };
+
   // on mount
   useEffect(() => {
-    const { current } = audioRef;
-    current.addEventListener('canplaythrough', audioLoaded);
+    audioRef.current.addEventListener('canplaythrough', audioLoaded);
 
     // preload images
     loadImage(`${backgrounds}/${setup.background}`);
@@ -64,10 +67,6 @@ export function Scene({
     };
   }, [audioRef, setup.background, setup.characters, commands]);
 
-  const audioLoaded = () => {
-    setSceneIsReady(true);
-  };
-
   const initBackground = setup.background;
   const initDialogue = { label: '', text: '', align: 'left' };
   const initCharacters = setup.characters.map(character => {
@@ -78,7 +77,7 @@ export function Scene({
     };
   });
 
-  const [sceneIsReady, setSceneIsReady] = useState(true);
+  const [sceneIsReady, setSceneIsReady] = useState(false);
   const [showDialogue, setShowDialogue] = useState(false);
   const [accessibilityOn, setAccessibilityOn] = useState(false);
   const [characters, setCharacters] = useState(initCharacters);
@@ -94,15 +93,57 @@ export function Scene({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
 
+  const audioLoaded = () => {
+    setSceneIsReady(true);
+  };
+
+  let startNow = 0;
+  let duration = Infinity;
+  let stopAudio = false;
+
+  // this function exists because we couldn't reliably stop the audio when
+  // playing only part of the audio file. So it would get cut off
+  function playAudio() {
+    const finishNow = Date.now();
+    const runningTime = finishNow - startNow;
+
+    // start audio after startTime has been reached
+    if (runningTime >= sToMs(audio.startTime) && audioRef.current.paused) {
+      void audioRef.current.play();
+    }
+
+    // stop audio if the duration has been reached
+    if (runningTime >= duration) {
+      stopAudio = true;
+      audioRef.current.pause();
+    }
+
+    if (!stopAudio) {
+      window.requestAnimationFrame(playAudio);
+    }
+  }
+
   const playScene = () => {
     setShowDialogue(true);
 
-    commands.forEach((command, commandIndex) => {
-      // Start audio timeout
+    // the timestamps don't exist when we play the whole audio, so we only need
+    // to use the playAudio function if they are set. Otherwise, we can just
+    // play the whole clip
+    if (audio.startTimestamp && audio.finishTimestamp) {
+      duration =
+        sToMs(audio.finishTimestamp) -
+        sToMs(audio.startTimestamp) +
+        sToMs(audio.startTime);
+      startNow = Date.now();
+
+      playAudio();
+    } else {
       setTimeout(function () {
         void audioRef.current.play();
-      }, audio.startTime * 1000);
+      }, sToMs(audio.startTime));
+    }
 
+    commands.forEach((command, commandIndex) => {
       // Start command timeout
       setTimeout(() => {
         if (command.background) setBackground(command.background);
@@ -127,7 +168,7 @@ export function Scene({
           });
           return newCharacters;
         });
-      }, command.startTime * 1000);
+      }, sToMs(command.startTime));
 
       // Finish command timeout, only used when there's a dialogue
       if (command.dialogue) {
@@ -146,7 +187,7 @@ export function Scene({
               return newCharacters;
             });
           },
-          (command.finishTime as number) * 1000
+          sToMs(command.finishTime as number)
         );
       }
 
@@ -156,9 +197,10 @@ export function Scene({
           () => {
             setIsPlaying(false);
           },
+          // an extra 500ms at the end to let the characters fade out (CSS transition)
           command.finishTime
-            ? command.finishTime * 1000 + 500
-            : command.startTime * 1000 + 500
+            ? sToMs(command.finishTime) + 500
+            : sToMs(command.startTime) + 500
         );
       }
     });
